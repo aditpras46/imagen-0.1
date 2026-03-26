@@ -18,6 +18,9 @@ import {
   ChevronLeft, 
   Trash2,
   ListOrdered,
+  Skull,
+  Ghost,
+  Zap,
   CheckCircle2
 } from "lucide-react";
 
@@ -27,8 +30,11 @@ const getAvailableApiKeys = () => {
   return keysStr.split(",").map(k => k.trim()).filter(k => k !== "");
 };
 
+type StyleCategory = "street" | "dark" | "cartoon";
+
 export default function App() {
   const [keyIndex, setKeyIndex] = useState(0);
+  const [selectedStyle, setSelectedStyle] = useState<StyleCategory>("street");
   const [promptInput, setPromptInput] = useState("");
   const [promptsQueue, setPromptsQueue] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -80,8 +86,9 @@ export default function App() {
       return;
     }
 
-    // Use current key from the list with rotation
-    const currentApiKey = availableKeys[keyIndex % availableKeys.length];
+    // Calculate which key to use based on current keyIndex and retryCount
+    const actualKeyIndex = (keyIndex + retryCount) % availableKeys.length;
+    const currentApiKey = availableKeys[actualKeyIndex];
     
     if (!currentApiKey) {
       setError("KEY_ERROR: Gagal memilih API Key. Silakan periksa format kunci Anda.");
@@ -93,22 +100,40 @@ export default function App() {
     setIsGenerating(true);
     setError(null);
 
+    let isRetrying = false;
     try {
-      const systemPrompt = `Create a high-quality New School cartoon illustration of: ${currentPrompt}. 
-      STYLE REQUIREMENTS:
-      - Urban character design with a clean cartoon aesthetic.
-      - BOLD, thick black outlines for the character details.
-      - NO OUTER WHITE BORDER, NO STICKER OUTLINE, NO GREY BORDER.
-      - The character should be placed directly on the white background without any surrounding offset path or border.
-      - Vibrant, saturated cel-shaded colors.
-      - NO soft gradients, use sharp cel-shading for depth.
-      - Pure white background (#FFFFFF).
-      - Streetwear and skater aesthetic.
-      - Dynamic and energetic composition.
-      - Clean vector-like finish.
-      - NO TEXT, NO LETTERS, NO WORDS, NO GRAFFITI TAGS, NO SIGNATURES.
-      - Focus only on the character and visual elements, strictly no typography.`;
-
+      let systemPrompt = "";
+      
+      if (selectedStyle === "street") {
+        systemPrompt = `Create a high-quality Street Style urban illustration of: ${currentPrompt}. 
+        STYLE REQUIREMENTS:
+        - Urban streetwear aesthetic, graffiti-inspired character design.
+        - BOLD, thick black outlines for the character details.
+        - NO OUTER WHITE BORDER, NO STICKER OUTLINE.
+        - Vibrant, saturated colors with sharp cel-shading.
+        - Pure white background (#FFFFFF).
+        - Clean vector-like finish, no text, no graffiti tags.`;
+      } else if (selectedStyle === "dark") {
+        systemPrompt = `Create a high-quality Dark Art macabre illustration of: ${currentPrompt}. 
+        STYLE REQUIREMENTS:
+        - Dark, gothic, and macabre aesthetic.
+        - High contrast, deep shadows, and intricate details.
+        - Muted color palette with occasional sharp highlights (red, neon).
+        - Gritty texture, ink-wash style, or dark surrealism.
+        - Pure white background (#FFFFFF) to contrast the dark subject.
+        - NO TEXT, NO LOGOS, NO SIGNATURES.`;
+      } else {
+        systemPrompt = `Create a high-quality Clean Cartoon illustration of: ${currentPrompt}. 
+        STYLE REQUIREMENTS:
+        - Modern, clean, and cute cartoon aesthetic.
+        - Smooth lines, vibrant pastel or primary colors.
+        - Simple shapes but high-quality rendering.
+        - NO OUTER BORDER, NO STICKER EFFECT.
+        - Pure white background (#FFFFFF).
+        - Playful and friendly composition.
+        - NO TEXT, NO LETTERS.`;
+      }
+      
       const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image",
         contents: [{ parts: [{ text: systemPrompt }] }],
@@ -124,33 +149,55 @@ export default function App() {
 
       if (imageUrl) {
         setGeneratedImages(prev => ({ ...prev, [index]: imageUrl }));
+        if (retryCount > 0) {
+          setKeyIndex(actualKeyIndex);
+        }
       } else {
         throw new Error("Gagal menghasilkan gambar. Model tidak mengembalikan data gambar.");
       }
     } catch (err) {
       console.error("Error generating image:", err);
-      const errorMessage = err instanceof Error ? err.message : String(err);
       
-      // Handle Rate Limit (Error 429) - Automatic Rotation
-      if (errorMessage.includes("429") || errorMessage.includes("Too Many Requests")) {
-        if (retryCount < availableKeys.length - 1) {
-          console.log(`Key #${(keyIndex % availableKeys.length) + 1} limit. Mencoba Key berikutnya...`);
-          setKeyIndex(prev => prev + 1);
-          // Tunggu sebentar sebelum mencoba lagi dengan key baru
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          return generateCartoon(index, retryCount + 1);
-        } else {
-          setError("Semua API Key telah mencapai batas kuota (Limit). Silakan tunggu beberapa menit.");
+      let errorMessage = "";
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else {
+        try {
+          errorMessage = JSON.stringify(err);
+        } catch {
+          errorMessage = String(err);
         }
-      } else if (errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID")) {
-        setError(`API Key #${(keyIndex % availableKeys.length) + 1} tidak valid. Pastikan Key benar.`);
+      }
+      
+      const isRateLimit = 
+        errorMessage.includes("429") || 
+        errorMessage.includes("Too Many Requests") || 
+        errorMessage.includes("RESOURCE_EXHAUSTED") ||
+        errorMessage.includes("quota");
+
+      if (isRateLimit && retryCount < availableKeys.length - 1) {
+        isRetrying = true;
+        console.log(`Key #${actualKeyIndex + 1} limit. Mencoba Key berikutnya...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return generateCartoon(index, retryCount + 1);
+      } else if ((errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID") || errorMessage.includes("invalid")) && retryCount < availableKeys.length - 1) {
+        isRetrying = true;
+        console.log(`Key #${actualKeyIndex + 1} invalid. Mencoba Key berikutnya...`);
+        return generateCartoon(index, retryCount + 1);
+      }
+
+      // If we reach here, it's a final error
+      if (isRateLimit) {
+        setError("Semua API Key telah mencapai batas kuota (Limit). Silakan tunggu beberapa menit.");
       } else if (errorMessage.includes("safety") || errorMessage.includes("blocked")) {
         setError("Prompt diblokir oleh filter keamanan AI. Coba gunakan kata-kata yang lebih umum.");
       } else {
-        setError(`Terjadi kesalahan: ${errorMessage.slice(0, 100)}...`);
+        setError(`Terjadi kesalahan: ${errorMessage.slice(0, 150)}...`);
       }
     } finally {
-      setIsGenerating(false);
+      if (!isRetrying) {
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -250,6 +297,37 @@ export default function App() {
                   Clear
                 </button>
               )}
+            </div>
+
+            {/* Style Selection */}
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] ml-2">
+                Pilih Gaya
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { id: "street", label: "Street", icon: <Zap size={14} /> },
+                  { id: "dark", label: "Dark", icon: <Skull size={14} /> },
+                  { id: "cartoon", label: "Cartoon", icon: <Ghost size={14} /> }
+                ].map((style) => (
+                  <button
+                    key={style.id}
+                    onClick={() => setSelectedStyle(style.id as StyleCategory)}
+                    className={`flex flex-col items-center justify-center gap-2 py-4 rounded-2xl border transition-all duration-300 ${
+                      selectedStyle === style.id
+                        ? "bg-indigo-500/10 border-indigo-500/50 text-indigo-400 shadow-lg shadow-indigo-500/5"
+                        : "bg-white/[0.02] border-white/5 text-slate-500 hover:border-white/20 hover:text-slate-300"
+                    }`}
+                  >
+                    <div className={`p-2 rounded-xl transition-colors ${
+                      selectedStyle === style.id ? "bg-indigo-500/20" : "bg-white/5"
+                    }`}>
+                      {style.icon}
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest">{style.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Input Methods */}
