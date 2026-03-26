@@ -21,13 +21,11 @@ import {
   CheckCircle2
 } from "lucide-react";
 
-// Get API keys from environment variables
-const getApiKeys = () => {
+// Helper to get API keys from environment variables safely
+const getAvailableApiKeys = () => {
   const keysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
   return keysStr.split(",").map(k => k.trim()).filter(k => k !== "");
 };
-
-const API_KEYS = getApiKeys();
 
 export default function App() {
   const [keyIndex, setKeyIndex] = useState(0);
@@ -74,11 +72,19 @@ export default function App() {
     const currentPrompt = promptsQueue[index];
     if (!currentPrompt) return;
 
-    // Use current key from the list
-    const currentApiKey = API_KEYS[keyIndex % API_KEYS.length];
+    // Get fresh list of keys
+    const availableKeys = getAvailableApiKeys();
+    
+    if (availableKeys.length === 0) {
+      setError("CONFIG_ERROR: Tidak ada API Key yang ditemukan. Pastikan Anda telah mengatur GEMINI_API_KEYS atau GEMINI_API_KEY di Environment Variables Vercel.");
+      return;
+    }
+
+    // Use current key from the list with rotation
+    const currentApiKey = availableKeys[keyIndex % availableKeys.length];
     
     if (!currentApiKey) {
-      setError("API_KEY_MISSING: Tidak ada API Key yang tersedia. Buka Settings > Environment Variables dan tambahkan GEMINI_API_KEYS (pisahkan dengan koma).");
+      setError("KEY_ERROR: Gagal memilih API Key. Silakan periksa format kunci Anda.");
       return;
     }
 
@@ -123,17 +129,17 @@ export default function App() {
       
       // Handle Rate Limit (Error 429) - Automatic Rotation
       if (errorMessage.includes("429") || errorMessage.includes("Too Many Requests")) {
-        if (retryCount < API_KEYS.length - 1) {
-          console.log(`Key #${keyIndex + 1} limit. Mencoba Key #${keyIndex + 2}...`);
+        if (retryCount < availableKeys.length - 1) {
+          console.log(`Key #${(keyIndex % availableKeys.length) + 1} limit. Mencoba Key berikutnya...`);
           setKeyIndex(prev => prev + 1);
           // Tunggu sebentar sebelum mencoba lagi dengan key baru
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 1500));
           return generateCartoon(index, retryCount + 1);
         } else {
-          setError("Semua API Key telah mencapai batas kuota (Limit). Silakan tunggu beberapa saat.");
+          setError("Semua API Key telah mencapai batas kuota (Limit). Silakan tunggu beberapa menit.");
         }
       } else if (errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID")) {
-        setError(`API Key #${keyIndex + 1} tidak valid. Pastikan Anda menyalin Key yang benar.`);
+        setError(`API Key #${(keyIndex % availableKeys.length) + 1} tidak valid. Pastikan Key benar.`);
       } else if (errorMessage.includes("safety") || errorMessage.includes("blocked")) {
         setError("Prompt diblokir oleh filter keamanan AI. Coba gunakan kata-kata yang lebih umum.");
       } else {
@@ -491,9 +497,9 @@ export default function App() {
                         <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(99,102,241,0.8)]"></div>
                         Batch Logic
                       </h4>
-                      {API_KEYS.length > 1 && (
+                      {getAvailableApiKeys().length > 1 && (
                         <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                          Using Key #{ (keyIndex % API_KEYS.length) + 1 }
+                          Using Key #{ (keyIndex % getAvailableApiKeys().length) + 1 }
                         </span>
                       )}
                     </div>
