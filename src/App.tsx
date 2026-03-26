@@ -72,6 +72,10 @@ export default function App() {
     setError(null);
 
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("API_KEY_MISSING: GEMINI_API_KEY belum diatur di Environment Variables.");
+      }
+
       const systemPrompt = `Create a high-quality New School cartoon illustration of: ${currentPrompt}. 
       STYLE REQUIREMENTS:
       - Urban graffiti-inspired character design.
@@ -99,11 +103,23 @@ export default function App() {
       if (imageUrl) {
         setGeneratedImages(prev => ({ ...prev, [index]: imageUrl }));
       } else {
-        throw new Error("Gagal menghasilkan gambar. Silakan coba lagi.");
+        throw new Error("Gagal menghasilkan gambar. Model tidak mengembalikan data gambar.");
       }
     } catch (err) {
       console.error("Error generating image:", err);
-      setError("Terjadi kesalahan saat membuat gambar. Pastikan prompt Anda sesuai kebijakan konten.");
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      if (errorMessage.includes("API_KEY_MISSING")) {
+        setError("API Key belum diatur di Vercel. Buka Settings > Environment Variables dan tambahkan GEMINI_API_KEY.");
+      } else if (errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID")) {
+        setError("API Key tidak valid. Pastikan Anda menyalin Key yang benar dari Google AI Studio.");
+      } else if (errorMessage.includes("429")) {
+        setError("Kuota API habis atau terlalu banyak permintaan. Silakan tunggu beberapa saat.");
+      } else if (errorMessage.includes("safety") || errorMessage.includes("blocked")) {
+        setError("Prompt diblokir oleh filter keamanan AI. Coba gunakan kata-kata yang lebih umum.");
+      } else {
+        setError(`Terjadi kesalahan: ${errorMessage.slice(0, 100)}...`);
+      }
     } finally {
       setIsGenerating(false);
     }
