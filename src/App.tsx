@@ -96,14 +96,18 @@ export default function App() {
     try {
       const systemPrompt = `Create a high-quality New School cartoon illustration of: ${currentPrompt}. 
       STYLE REQUIREMENTS:
-      - Urban graffiti-inspired character design.
-      - BOLD, thick black outlines (sticker-like feel).
+      - Urban character design with a clean cartoon aesthetic.
+      - BOLD, thick black outlines for the character details.
+      - NO OUTER WHITE BORDER, NO STICKER OUTLINE, NO GREY BORDER.
+      - The character should be placed directly on the white background without any surrounding offset path or border.
       - Vibrant, saturated cel-shaded colors.
       - NO soft gradients, use sharp cel-shading for depth.
       - Pure white background (#FFFFFF).
       - Streetwear and skater aesthetic.
       - Dynamic and energetic composition.
-      - Clean vector-like finish.`;
+      - Clean vector-like finish.
+      - NO TEXT, NO LETTERS, NO WORDS, NO GRAFFITI TAGS, NO SIGNATURES.
+      - Focus only on the character and visual elements, strictly no typography.`;
 
       const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image",
