@@ -21,10 +21,16 @@ import {
   CheckCircle2
 } from "lucide-react";
 
-// Initialize Gemini AI
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// Get API keys from environment variables
+const getApiKeys = () => {
+  const keysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+  return keysStr.split(",").map(k => k.trim()).filter(k => k !== "");
+};
+
+const API_KEYS = getApiKeys();
 
 export default function App() {
+  const [keyIndex, setKeyIndex] = useState(0);
   const [promptInput, setPromptInput] = useState("");
   const [promptsQueue, setPromptsQueue] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -64,18 +70,24 @@ export default function App() {
     }
   };
 
-  const generateCartoon = async (index: number) => {
+  const generateCartoon = async (index: number, retryCount = 0) => {
     const currentPrompt = promptsQueue[index];
     if (!currentPrompt) return;
+
+    // Use current key from the list
+    const currentApiKey = API_KEYS[keyIndex % API_KEYS.length];
+    
+    if (!currentApiKey) {
+      setError("API_KEY_MISSING: Tidak ada API Key yang tersedia. Buka Settings > Environment Variables dan tambahkan GEMINI_API_KEYS (pisahkan dengan koma).");
+      return;
+    }
+
+    const genAI = new GoogleGenAI({ apiKey: currentApiKey });
 
     setIsGenerating(true);
     setError(null);
 
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("API_KEY_MISSING: GEMINI_API_KEY belum diatur di Environment Variables.");
-      }
-
       const systemPrompt = `Create a high-quality New School cartoon illustration of: ${currentPrompt}. 
       STYLE REQUIREMENTS:
       - Urban graffiti-inspired character design.
@@ -109,12 +121,19 @@ export default function App() {
       console.error("Error generating image:", err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       
-      if (errorMessage.includes("API_KEY_MISSING")) {
-        setError("API Key belum diatur di Vercel. Buka Settings > Environment Variables dan tambahkan GEMINI_API_KEY.");
+      // Handle Rate Limit (Error 429) - Automatic Rotation
+      if (errorMessage.includes("429") || errorMessage.includes("Too Many Requests")) {
+        if (retryCount < API_KEYS.length - 1) {
+          console.log(`Key #${keyIndex + 1} limit. Mencoba Key #${keyIndex + 2}...`);
+          setKeyIndex(prev => prev + 1);
+          // Tunggu sebentar sebelum mencoba lagi dengan key baru
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return generateCartoon(index, retryCount + 1);
+        } else {
+          setError("Semua API Key telah mencapai batas kuota (Limit). Silakan tunggu beberapa saat.");
+        }
       } else if (errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID")) {
-        setError("API Key tidak valid. Pastikan Anda menyalin Key yang benar dari Google AI Studio.");
-      } else if (errorMessage.includes("429")) {
-        setError("Kuota API habis atau terlalu banyak permintaan. Silakan tunggu beberapa saat.");
+        setError(`API Key #${keyIndex + 1} tidak valid. Pastikan Anda menyalin Key yang benar.`);
       } else if (errorMessage.includes("safety") || errorMessage.includes("blocked")) {
         setError("Prompt diblokir oleh filter keamanan AI. Coba gunakan kata-kata yang lebih umum.");
       } else {
@@ -467,10 +486,17 @@ export default function App() {
 
                   <div className="p-10 bg-white/[0.02] rounded-[3rem] border border-white/5 space-y-5 relative overflow-hidden group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500/50"></div>
-                    <h4 className="font-black text-indigo-400 text-[10px] uppercase tracking-[0.3em] flex items-center gap-4">
-                      <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(99,102,241,0.8)]"></div>
-                      Batch Logic
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-black text-indigo-400 text-[10px] uppercase tracking-[0.3em] flex items-center gap-4">
+                        <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(99,102,241,0.8)]"></div>
+                        Batch Logic
+                      </h4>
+                      {API_KEYS.length > 1 && (
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                          Using Key #{ (keyIndex % API_KEYS.length) + 1 }
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-slate-400 font-semibold leading-relaxed opacity-80">
                       Sistem akan memproses satu per satu. Klik <span className="text-white font-black">Lanjut</span> untuk otomatis berpindah dan memproses prompt berikutnya. Hasil gambar dioptimalkan untuk gaya <span className="text-indigo-400 font-black italic tracking-wider">NEW SCHOOL CARTOON</span>.
                     </p>
